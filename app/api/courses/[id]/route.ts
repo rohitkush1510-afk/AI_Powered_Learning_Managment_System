@@ -2,6 +2,19 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getUserFromToken } from '@/lib/auth'
 
+/** Course quizzes (userId null) are visible to everyone; personal quizzes only to their owner. */
+function applyQuizVisibility(course: { modules: { lessons: { quizzes?: unknown[] }[] }[] }, viewerId: string | null) {
+  for (const mod of course.modules) {
+    for (const lesson of mod.lessons) {
+      const list = lesson.quizzes as { userId: string | null }[] | undefined
+      if (!list?.length) continue
+      lesson.quizzes = list.filter(
+        (q) => q.userId == null || (viewerId != null && q.userId === viewerId)
+      )
+    }
+  }
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: { id: string } }
@@ -22,7 +35,13 @@ export async function GET(
           include: {
             lessons: {
               include: {
-                quizzes: true,
+                quizzes: {
+                  include: {
+                    questions: {
+                      orderBy: { order: 'asc' },
+                    },
+                  },
+                },
               },
               orderBy: {
                 order: 'asc',
@@ -49,6 +68,14 @@ export async function GET(
     if (!course) {
       return NextResponse.json({ error: 'Course not found' }, { status: 404 })
     }
+
+    const authHeader = req.headers.get('authorization')
+    let viewerId: string | null = null
+    if (authHeader?.startsWith('Bearer ')) {
+      const viewer = await getUserFromToken(authHeader.substring(7))
+      if (viewer) viewerId = viewer.id
+    }
+    applyQuizVisibility(course, viewerId)
 
     return NextResponse.json({ course })
   } catch (error) {

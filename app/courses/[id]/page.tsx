@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { useAuth } from '@/components/AuthProvider'
-import { BookOpen, Play, Clock, Plus, Sparkles } from 'lucide-react'
+import { BookOpen, Play, Clock, Plus, Sparkles, ClipboardList } from 'lucide-react'
 
 interface Lesson {
   id: string
@@ -37,6 +37,8 @@ export default function CourseDetailPage() {
   const [loading, setLoading] = useState(true)
   const [enrolled, setEnrolled] = useState(false)
   const [creating, setCreating] = useState(false)
+  const [generatingLessonId, setGeneratingLessonId] = useState<string | null>(null)
+  const [quizSuccess, setQuizSuccess] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   // Instructor builder state
@@ -191,6 +193,32 @@ export default function CourseDetailPage() {
     }
   }
 
+  const generateLessonMcqQuiz = async (lessonId: string) => {
+    if (!isInstructorOwner) return
+    setGeneratingLessonId(lessonId)
+    setError(null)
+    setQuizSuccess(null)
+    try {
+      const token = localStorage.getItem('token')
+      const res = await fetch('/api/ai/generate-quiz', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ lessonId, numQuestions: 10 }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to generate quiz')
+      setQuizSuccess('Created a 10-question MCQ for that lesson (Sarvam).')
+      await fetchCourse()
+    } catch (e: any) {
+      setError(e.message || 'Failed to generate quiz.')
+    } finally {
+      setGeneratingLessonId(null)
+    }
+  }
+
   const publishCourse = async () => {
     if (!course || !isInstructorOwner || course.status !== 'DRAFT') return
     setCreating(true)
@@ -289,11 +317,17 @@ export default function CourseDetailPage() {
           </div>
         )}
 
+        {quizSuccess && (
+          <div className="bg-green-50 border border-green-200 text-green-800 rounded-lg p-4 mb-8">
+            {quizSuccess}
+          </div>
+        )}
+
         {isInstructorOwner && (
           <div className="bg-white rounded-lg shadow-lg p-8 mb-8">
             <div className="flex items-center justify-between gap-4 mb-6">
               <h2 className="text-2xl font-semibold">Course Builder</h2>
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center justify-end gap-3">
                 {course.status === 'DRAFT' && (
                   <button
                     onClick={publishCourse}
@@ -403,18 +437,32 @@ export default function CourseDetailPage() {
                   {module.lessons.map((lesson) => (
                     <div
                       key={lesson.id}
-                      className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+                      className="flex flex-wrap items-center justify-between gap-3 p-3 bg-gray-50 rounded-lg"
                     >
-                      <div className="flex items-center space-x-3">
-                        <Play className="h-5 w-5 text-primary-600" />
-                        <span>{lesson.title}</span>
+                      <div className="flex items-center space-x-3 min-w-0">
+                        <Play className="h-5 w-5 text-primary-600 shrink-0" />
+                        <span className="truncate">{lesson.title}</span>
                       </div>
-                      {lesson.duration && (
-                        <div className="flex items-center space-x-1 text-sm text-gray-500">
-                          <Clock className="h-4 w-4" />
-                          <span>{lesson.duration} min</span>
-                        </div>
-                      )}
+                      <div className="flex items-center gap-2 shrink-0">
+                        {lesson.duration && (
+                          <div className="flex items-center space-x-1 text-sm text-gray-500">
+                            <Clock className="h-4 w-4" />
+                            <span>{lesson.duration} min</span>
+                          </div>
+                        )}
+                        {isInstructorOwner && (
+                          <button
+                            type="button"
+                            onClick={() => generateLessonMcqQuiz(lesson.id)}
+                            disabled={generatingLessonId !== null}
+                            title="Generate 10 MCQs from this lesson only (Sarvam AI)"
+                            className="inline-flex items-center gap-1.5 text-sm bg-primary-600 text-white px-3 py-1.5 rounded-md hover:bg-primary-700 disabled:opacity-50"
+                          >
+                            <ClipboardList className="h-4 w-4 shrink-0" />
+                            {generatingLessonId === lesson.id ? 'Generating…' : '10 MCQs (AI)'}
+                          </button>
+                        )}
+                      </div>
                     </div>
                   ))}
                   {module.lessons.length === 0 && (
